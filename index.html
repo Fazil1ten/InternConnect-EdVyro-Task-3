@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="description" content="InternConnect - discover internships across technology, design, data and security.">
+<title>InternConnect — Find Your Next Opportunity</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="container nav-wrap">
+    <a class="logo" href="#" aria-label="InternConnect home">
+      <span class="logo-icon" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="38" height="38" focusable="false">
+          <defs><linearGradient id="icLogo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22c55e"/><stop offset="1" stop-color="#0f766e"/></linearGradient></defs>
+          <rect x="1" y="1" width="46" height="46" rx="14" fill="url(#icLogo)"/>
+          <path d="M13 25l7 7 15-16" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="35" cy="35" r="3.2" fill="#fff"/>
+        </svg>
+      </span>
+      <span>Intern<span>Connect</span></span>
+    </a>
+    <nav id="main-nav" aria-label="Primary navigation">
+      <a class="active" href="#internships">Internships</a>
+      <a href="#why-us">Why us</a>
+      <a href="#about">About</a>
+    </nav>
+    <button class="icon-btn menu-btn" id="menuBtn" aria-label="Open navigation menu" aria-expanded="false">☰</button>
+    <button class="theme-btn" id="themeBtn" type="button" aria-label="Toggle dark mode">◐</button>
+  </div>
+</header>
+
+<main>
+<section class="hero">
+  <div class="hero-glow glow-one"></div><div class="hero-glow glow-two"></div>
+  <div class="container hero-grid">
+    <div>
+      <div class="pill"><span class="dot"></span> Student internship opportunities</div>
+      <h1>Find an internship.<br><span>Build your future.</span></h1>
+      <p class="hero-copy">Search the supplied EdVyro internship seed, inspect details, and submit a demo application.</p>
+      <div class="hero-search">
+        <label for="search">Search internships</label>
+        <div class="search-row">
+          <span aria-hidden="true">⌕</span>
+          <input id="search" type="search" placeholder="Role, company, skill or keyword..." autocomplete="off">
+          <button id="searchBtn" type="button">Search</button>
+        </div>
+      </div>
+      <div class="quick-tags" aria-label="Popular searches">
+        <span>Popular:</span><button data-query="Frontend">Frontend</button><button data-query="Python">Python</button><button data-query="UI/UX">UI/UX</button><button data-query="Data">Data</button>
+      </div>
+    </div>
+    <div class="hero-card" aria-label="Featured internship preview">
+      <div class="mini-top"><span>FEATURED</span><span>● OPEN</span></div>
+      <div class="company-logo">TN</div>
+      <h2>Frontend Intern</h2>
+      <p>TechBridge Labs</p>
+      <div class="mini-meta"><span>📍 Hyderabad</span><span>⌛ 3 months</span></div>
+      <div class="mini-pay">₹12,000 <small>/ month</small></div>
+      <div class="skill-row"><span>HTML</span><span>CSS</span><span>JavaScript</span></div>
+      <a href="#internships" class="mini-link">Explore opportunities →</a>
+    </div>
+  </div>
+</section>
+
+<section class="stats"><div class="container stats-grid">
+  <div><strong>5</strong><span>Seed internships</span></div><div><strong>5</strong><span>Companies</span></div><div><strong>4</strong><span>Career domains</span></div><div><strong>100%</strong><span>Responsive</span></div>
+</div></section>
+
+<section id="internships" class="container board-section">
+  <div class="section-title"><div><p class="eyebrow">EXPLORE OPPORTUNITIES</p><h2>Latest internships</h2><p>Find a role that matches your skills and interests.</p></div><button id="clearAll" class="clear-btn" type="button">Clear filters</button></div>
+  <div class="filters">
+    <div class="filter-field wide"><label for="domain">Domain</label><select id="domain"><option value="all">All domains</option><option>Web Development</option><option>Data Science</option><option>AI/ML</option><option>UI/UX Design</option><option>Cyber Security</option></select></div>
+    <div class="filter-field"><label for="mode">Work mode</label><select id="mode"><option value="all">All modes</option><option>Remote</option><option>Hybrid</option><option>On-site</option></select></div>
+    <div class="filter-field"><label for="location">Location</label><select id="location"><option value="all">All locations</option><option>Hyderabad</option><option>Bengaluru</option><option>Pune</option><option>Mumbai</option><option>Chennai</option><option>Delhi</option></select></div>
+    <div class="filter-field"><label for="sort">Sort by</label><select id="sort"><option value="new">Recommended</option><option value="stipend">Highest stipend</option><option value="duration">Shortest duration</option></select></div>
+  </div>
+  <div class="board-head"><p id="count" aria-live="polite"></p><div class="view-note">Accessible • Responsive • Framework-free</div></div>
+  <div id="loading" class="state" aria-live="polite"><div class="state-icon">…</div><h3>Loading internships</h3><p>Fetching the latest opportunities.</p></div>
+  <div id="error" class="state error-state" role="alert" hidden><div class="state-icon">!</div><h3>Something went wrong</h3><p>We couldn't load the internship listings.</p><button id="retry" class="primary-btn" type="button">Try again</button></div>
+  <div id="empty" class="state" hidden><div class="state-icon">⌕</div><h3>No internships found</h3><p>Try changing your search or filters.</p><button id="resetEmpty" class="primary-btn" type="button">Reset filters</button></div>
+  <div id="cards" class="card-grid" aria-live="polite"></div>
+</section>
+
+<section id="why-us" class="why-section"><div class="container">
+  <div class="center-title"><p class="eyebrow">WHY INTERNCONNECT</p><h2>Everything you need to start.</h2><p>Simple discovery tools designed to make your internship search easier.</p></div>
+  <div class="benefit-grid">
+    <article><div class="benefit-icon">⌕</div><h3>Easy discovery</h3><p>Search by role, company, skill or keyword and quickly narrow down opportunities.</p></article>
+    <article><div class="benefit-icon">◈</div><h3>Multiple domains</h3><p>Explore development, data, AI, design and cyber security opportunities.</p></article>
+    <article><div class="benefit-icon">↗</div><h3>Ready to apply</h3><p>Review key details like location, work mode, stipend and required skills.</p></article>
+  </div>
+</div></section>
+
+<section id="about" class="cta-section"><div class="container cta"><div><p class="eyebrow">START TODAY</p><h2>Your next opportunity is waiting.</h2><p>Build skills, gain experience and take the next step in your career.</p></div><a href="#internships" class="primary-btn">Browse internships →</a></div></section>
+</main>
+<div id="detailsModal" class="modal" role="dialog" aria-modal="true" aria-labelledby="modalTitle" hidden>
+  <div class="modal-dialog">
+    <button id="modalClose" class="modal-close" type="button" aria-label="Close internship details">×</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<footer><div class="container footer-grid"><div><a class="logo footer-logo" href="#" aria-label="InternConnect home">
+      <span class="logo-icon" aria-hidden="true">
+        <svg viewBox="0 0 48 48" width="38" height="38" focusable="false">
+          <defs><linearGradient id="icFooterLogo" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#22c55e"/><stop offset="1" stop-color="#0f766e"/></linearGradient></defs>
+          <rect x="1" y="1" width="46" height="46" rx="14" fill="url(#icFooterLogo)"/>
+          <path d="M13 25l7 7 15-16" fill="none" stroke="#fff" stroke-width="4" stroke-linecap="round" stroke-linejoin="round"/>
+          <circle cx="35" cy="35" r="3.2" fill="#fff"/>
+        </svg>
+      </span><span>Intern<span>Connect</span></span></a>
+      <p>Connecting students with meaningful internship opportunities through a clean, accessible and responsive platform.</p></div><div><strong>Explore</strong><a href="#internships">Internships</a><a href="#why-us">Why us</a></div><div><strong>Project</strong><span>EdVyro Full Stack</span><span>Task 2</span><a href="https://github.com/Fazil1ten" target="_blank" rel="noopener noreferrer">GitHub · @Fazil1ten</a></div></div><div class="container copyright">© 2026 InternConnect · Built by Fazil Hussain for the EdVyro Full Stack Internship.</div></footer>
+<script src="script.js"></script>
+</body>
+</html>

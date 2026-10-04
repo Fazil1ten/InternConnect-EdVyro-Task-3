@@ -1,32 +1,19 @@
-const http = require('http');
-const fs = require('fs');
+const express = require('express');
 const path = require('path');
-const { URL } = require('url');
 const crypto = require('crypto');
 
 const db = require('./database');
 
+const app = express();
 const PORT = process.env.PORT || 3000;
-const ROOT = __dirname;
 
-const MIME = {
-  '.html': 'text/html; charset=utf-8',
-  '.css': 'text/css; charset=utf-8',
-  '.js': 'text/javascript; charset=utf-8',
-  '.json': 'application/json; charset=utf-8',
-  '.svg': 'image/svg+xml'
-};
+// Middleware
+app.use(express.json({ limit: '100kb' }));
 
-const send = (res, status, payload, headers = {}) => {
-  res.writeHead(status, {
-    'Content-Type': 'application/json; charset=utf-8',
-    ...headers
-  });
+// Serve frontend files
+app.use(express.static(__dirname));
 
-  res.end(JSON.stringify(payload));
-  return true;
-};
-
+// Consistent API responses
 const ok = (data, pagination = {}) => ({
   status: 'success',
   data,
@@ -41,29 +28,7 @@ const fail = (message, code = 'BAD_REQUEST') => ({
   }
 });
 
-const readBody = (req) =>
-  new Promise((resolve, reject) => {
-    let body = '';
-
-    req.on('data', (chunk) => {
-      body += chunk;
-
-      if (body.length > 100000) {
-        req.destroy();
-      }
-    });
-
-    req.on('end', () => {
-      try {
-        resolve(body ? JSON.parse(body) : {});
-      } catch {
-        reject(new Error('Invalid JSON body.'));
-      }
-    });
-
-    req.on('error', reject);
-  });
-
+// Safe portfolio URL validation
 const isSafeUrl = (value) => {
   try {
     const url = new URL(value);
@@ -77,667 +42,535 @@ const isSafeUrl = (value) => {
   }
 };
 
+// Convert SQLite row into API object
 const formatInternship = (row) => ({
   ...row,
   skills: JSON.parse(row.skills)
 });
 
-function handleApi(req, res, url) {
+// Temporary application store for demo applications
+const applicationStore = new Map();
 
-  // GET ALL INTERNSHIPS
-  if (req.method === 'GET' && url.pathname === '/api/internships') {
+/*
+  GET ALL INTERNSHIPS
+  Supports:
+  ?q=frontend
+  ?domain=Full Stack Development
+  ?mode=Remote
+  ?location=India
+  ?sort=stipend
+  ?sort=duration
+  ?page=1
+  ?limit=10
+*/
+app.get('/api/internships', (req, res) => {
+  const q = String(req.query.q || '').trim().toLowerCase();
 
-    const q = (url.searchParams.get('q') || '').trim().toLowerCase();
+  const domain = String(req.query.domain || 'all');
+  const mode = String(req.query.mode || 'all');
+  const location = String(req.query.location || 'all');
 
-    const domain = url.searchParams.get('domain') || 'all';
-    const mode = url.searchParams.get('mode') || 'all';
-    const location = url.searchParams.get('location') || 'all';
+  const sort = String(req.query.sort || 'recommended');
 
-    const sort = url.searchParams.get('sort') || 'recommended';
+  const page = Math.max(
+    1,
+    Number(req.query.page || 1)
+  );
 
-    const page = Math.max(
-      1,
-      Number(url.searchParams.get('page') || 1)
+  const limit = Math.min(
+    50,
+    Math.max(1, Number(req.query.limit || 10))
+  );
+
+  let rows = db
+    .prepare(`
+      SELECT *
+      FROM internships
+      ORDER BY rowid ASC
+    `)
+    .all();
+
+  rows = rows.filter((row) => {
+    const internship = formatInternship(row);
+
+    const matchesSearch =
+      !q ||
+      JSON.stringify(internship)
+        .toLowerCase()
+        .includes(q);
+
+    const matchesDomain =
+      domain === 'all' ||
+      internship.domain === domain;
+
+    const matchesMode =
+      mode === 'all' ||
+      internship.mode === mode;
+
+    const matchesLocation =
+      location === 'all' ||
+      internship.location === location;
+
+    return (
+      matchesSearch &&
+      matchesDomain &&
+      matchesMode &&
+      matchesLocation
     );
+  });
 
-    const limit = Math.min(
-      50,
-      Math.max(1, Number(url.searchParams.get('limit') || 10))
-    );
-
-    let rows = db
-      .prepare(`
-        SELECT *
-        FROM internships
-        ORDER BY rowid ASC
-      `)
-      .all();
-
-    rows = rows.filter((row) => {
-
-      const internship = formatInternship(row);
-
-      const matchesSearch =
-        !q ||
-        JSON.stringify(internship)
-          .toLowerCase()
-          .includes(q);
-
-      const matchesDomain =
-        domain === 'all' || internship.domain === domain;
-
-      const matchesMode =
-        mode === 'all' || internship.mode === mode;
-
-      const matchesLocation =
-        location === 'all' || internship.location === location;
-
-      return (
-        matchesSearch &&
-        matchesDomain &&
-        matchesMode &&
-        matchesLocation
-      );
-    });
-
-    if (sort === 'stipend') {
-      rows.sort((a, b) => b.stipend - a.stipend);
-    }
-
-    if (sort === 'duration') {
-      rows.sort((a, b) => a.duration - b.duration);
-    }
-
-    rows = rows.map(formatInternship);
-
-    const total = rows.length;
-
-    const totalPages = Math.max(
-      1,
-      Math.ceil(total / limit)
-    );
-
-    const start = (page - 1) * limit;
-
-    const paginatedRows = rows.slice(
-      start,
-      start + limit
-    );
-
-    return send(
-      res,
-      200,
-      ok(paginatedRows, {
-        page,
-        limit,
-        total,
-        totalPages
-      })
-    );
+  if (sort === 'stipend') {
+    rows.sort((a, b) => b.stipend - a.stipend);
   }
 
-  // GET SINGLE INTERNSHIP
-  if (
-    req.method === 'GET' &&
-    url.pathname.match(/^\/api\/internships\/[^/]+$/)
-  ) {
-
-    const id = decodeURIComponent(
-      url.pathname.split('/').pop()
-    );
-
-    const row = db
-      .prepare(`
-        SELECT *
-        FROM internships
-        WHERE id = ?
-      `)
-      .get(id);
-
-    if (!row) {
-      return send(
-        res,
-        404,
-        fail(
-          'Internship not found.',
-          'INTERNSHIP_NOT_FOUND'
-        )
-      );
-    }
-
-    return send(
-      res,
-      200,
-      ok(formatInternship(row))
-    );
+  if (sort === 'duration') {
+    rows.sort((a, b) => a.duration - b.duration);
   }
 
-  // CREATE INTERNSHIP
-  if (
-    req.method === 'POST' &&
-    url.pathname === '/api/internships'
-  ) {
+  rows = rows.map(formatInternship);
 
-    readBody(req)
-      .then((body) => {
+  const total = rows.length;
 
-        const requiredFields = [
-          'id',
-          'title',
-          'domain',
-          'mode',
-          'location',
-          'skills',
-          'openings',
-          'company',
-          'stipend',
-          'duration',
-          'description'
-        ];
+  const totalPages = Math.max(
+    1,
+    Math.ceil(total / limit)
+  );
 
-        for (const field of requiredFields) {
-          if (
-            body[field] === undefined ||
-            body[field] === null ||
-            body[field] === ''
-          ) {
-            return send(
-              res,
-              400,
-              fail(
-                `${field} is required.`,
-                'FIELD_REQUIRED'
-              )
-            );
-          }
-        }
+  const start = (page - 1) * limit;
 
-        if (
-          !Array.isArray(body.skills) ||
-          body.skills.length === 0
-        ) {
-          return send(
-            res,
-            400,
-            fail(
-              'Skills must be a non-empty array.',
-              'INVALID_SKILLS'
-            )
-          );
-        }
+  const paginatedRows = rows.slice(
+    start,
+    start + limit
+  );
 
-        const existing = db
-          .prepare(
-            'SELECT id FROM internships WHERE id = ?'
-          )
-          .get(String(body.id));
+  return res.status(200).json(
+    ok(paginatedRows, {
+      page,
+      limit,
+      total,
+      totalPages
+    })
+  );
+});
 
-        if (existing) {
-          return send(
-            res,
-            409,
-            fail(
-              'Internship ID already exists.',
-              'DUPLICATE_ID'
-            )
-          );
-        }
+/*
+  GET SINGLE INTERNSHIP
+*/
+app.get('/api/internships/:id', (req, res) => {
+  const id = req.params.id;
 
-        db.prepare(`
-          INSERT INTO internships
-          (
-            id,
-            title,
-            domain,
-            mode,
-            location,
-            skills,
-            openings,
-            company,
-            stipend,
-            duration,
-            description
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-        `).run(
-          String(body.id),
-          String(body.title).trim(),
-          String(body.domain).trim(),
-          String(body.mode).trim(),
-          String(body.location).trim(),
-          JSON.stringify(body.skills),
-          Number(body.openings),
-          String(body.company).trim(),
-          Number(body.stipend),
-          Number(body.duration),
-          String(body.description).trim()
-        );
+  const row = db
+    .prepare(`
+      SELECT *
+      FROM internships
+      WHERE id = ?
+    `)
+    .get(id);
 
-        const created = db
-          .prepare(
-            'SELECT * FROM internships WHERE id = ?'
-          )
-          .get(String(body.id));
-
-        return send(
-          res,
-          201,
-          ok(formatInternship(created))
-        );
-      })
-      .catch(() => {
-        send(
-          res,
-          400,
-          fail(
-            'Invalid JSON body.',
-            'INVALID_JSON'
-          )
-        );
-      });
-
-    return true;
-  }
-
-  // UPDATE INTERNSHIP
-  if (
-    (req.method === 'PUT' || req.method === 'PATCH') &&
-    url.pathname.match(/^\/api\/internships\/[^/]+$/)
-  ) {
-
-    const id = decodeURIComponent(
-      url.pathname.split('/').pop()
-    );
-
-    readBody(req)
-      .then((body) => {
-
-        const existing = db
-          .prepare(
-            'SELECT * FROM internships WHERE id = ?'
-          )
-          .get(id);
-
-        if (!existing) {
-          return send(
-            res,
-            404,
-            fail(
-              'Internship not found.',
-              'INTERNSHIP_NOT_FOUND'
-            )
-          );
-        }
-
-        const current = formatInternship(existing);
-
-        const updated = {
-          title:
-            body.title !== undefined
-              ? String(body.title).trim()
-              : current.title,
-
-          domain:
-            body.domain !== undefined
-              ? String(body.domain).trim()
-              : current.domain,
-
-          mode:
-            body.mode !== undefined
-              ? String(body.mode).trim()
-              : current.mode,
-
-          location:
-            body.location !== undefined
-              ? String(body.location).trim()
-              : current.location,
-
-          skills:
-            body.skills !== undefined
-              ? body.skills
-              : current.skills,
-
-          openings:
-            body.openings !== undefined
-              ? Number(body.openings)
-              : current.openings,
-
-          company:
-            body.company !== undefined
-              ? String(body.company).trim()
-              : current.company,
-
-          stipend:
-            body.stipend !== undefined
-              ? Number(body.stipend)
-              : current.stipend,
-
-          duration:
-            body.duration !== undefined
-              ? Number(body.duration)
-              : current.duration,
-
-          description:
-            body.description !== undefined
-              ? String(body.description).trim()
-              : current.description
-        };
-
-        if (
-          !Array.isArray(updated.skills) ||
-          updated.skills.length === 0
-        ) {
-          return send(
-            res,
-            400,
-            fail(
-              'Skills must be a non-empty array.',
-              'INVALID_SKILLS'
-            )
-          );
-        }
-
-        db.prepare(`
-          UPDATE internships
-          SET
-            title = ?,
-            domain = ?,
-            mode = ?,
-            location = ?,
-            skills = ?,
-            openings = ?,
-            company = ?,
-            stipend = ?,
-            duration = ?,
-            description = ?
-          WHERE id = ?
-        `).run(
-          updated.title,
-          updated.domain,
-          updated.mode,
-          updated.location,
-          JSON.stringify(updated.skills),
-          updated.openings,
-          updated.company,
-          updated.stipend,
-          updated.duration,
-          updated.description,
-          id
-        );
-
-        const result = db
-          .prepare(
-            'SELECT * FROM internships WHERE id = ?'
-          )
-          .get(id);
-
-        return send(
-          res,
-          200,
-          ok(formatInternship(result))
-        );
-      })
-      .catch(() => {
-        send(
-          res,
-          400,
-          fail(
-            'Invalid JSON body.',
-            'INVALID_JSON'
-          )
-        );
-      });
-
-    return true;
-  }
-
-  // DELETE INTERNSHIP
-  if (
-    req.method === 'DELETE' &&
-    url.pathname.match(/^\/api\/internships\/[^/]+$/)
-  ) {
-
-    const id = decodeURIComponent(
-      url.pathname.split('/').pop()
-    );
-
-    const existing = db
-      .prepare(
-        'SELECT id FROM internships WHERE id = ?'
+  if (!row) {
+    return res.status(404).json(
+      fail(
+        'Internship not found.',
+        'INTERNSHIP_NOT_FOUND'
       )
-      .get(id);
-
-    if (!existing) {
-      return send(
-        res,
-        404,
-        fail(
-          'Internship not found.',
-          'INTERNSHIP_NOT_FOUND'
-        )
-      );
-    }
-
-    db.prepare(
-      'DELETE FROM internships WHERE id = ?'
-    ).run(id);
-
-    return send(
-      res,
-      200,
-      ok({
-        id,
-        message: 'Internship deleted successfully.'
-      })
     );
   }
 
-  // APPLICATION
+  return res.status(200).json(
+    ok(formatInternship(row))
+  );
+});
+
+/*
+  CREATE INTERNSHIP
+*/
+app.post('/api/internships', (req, res) => {
+  const body = req.body || {};
+
+  const requiredFields = [
+    'id',
+    'title',
+    'domain',
+    'mode',
+    'location',
+    'skills',
+    'openings',
+    'company',
+    'stipend',
+    'duration',
+    'description'
+  ];
+
+  for (const field of requiredFields) {
+    if (
+      body[field] === undefined ||
+      body[field] === null ||
+      body[field] === ''
+    ) {
+      return res.status(400).json(
+        fail(
+          `${field} is required.`,
+          'FIELD_REQUIRED'
+        )
+      );
+    }
+  }
+
   if (
-    req.method === 'POST' &&
-    url.pathname === '/api/applications'
+    !Array.isArray(body.skills) ||
+    body.skills.length === 0
   ) {
-
-    readBody(req)
-      .then((body) => {
-
-        const name = String(
-          body.name || ''
-        ).trim();
-
-        const email = String(
-          body.email || ''
-        ).trim().toLowerCase();
-
-        const portfolio = String(
-          body.portfolio || ''
-        ).trim();
-
-        const internshipId = String(
-          body.internshipId || ''
-        ).trim();
-
-        if (!name) {
-          return send(
-            res,
-            400,
-            fail(
-              'Name is required.',
-              'NAME_REQUIRED'
-            )
-          );
-        }
-
-        if (
-          !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
-        ) {
-          return send(
-            res,
-            400,
-            fail(
-              'Enter a valid email address.',
-              'INVALID_EMAIL'
-            )
-          );
-        }
-
-        if (
-          portfolio &&
-          !isSafeUrl(portfolio)
-        ) {
-          return send(
-            res,
-            400,
-            fail(
-              'Portfolio URL must use http or https.',
-              'UNSAFE_URL'
-            )
-          );
-        }
-
-        const internship = db
-          .prepare(
-            'SELECT id FROM internships WHERE id = ?'
-          )
-          .get(internshipId);
-
-        if (!internship) {
-          return send(
-            res,
-            404,
-            fail(
-              'Internship not found.',
-              'INTERNSHIP_NOT_FOUND'
-            )
-          );
-        }
-
-        // This demo keeps applications in memory.
-        // No applicant information is logged.
-        if (!global.applicationStore) {
-          global.applicationStore = new Map();
-        }
-
-        const key = `${internshipId}:${email}`;
-
-        if (global.applicationStore.has(key)) {
-          return send(
-            res,
-            409,
-            fail(
-              'You have already applied to this internship.',
-              'DUPLICATE_APPLICATION'
-            )
-          );
-        }
-
-        const applicationId = crypto.randomUUID();
-
-        global.applicationStore.set(
-          key,
-          {
-            applicationId,
-            internshipId
-          }
-        );
-
-        return send(
-          res,
-          201,
-          ok({
-            applicationId,
-            internshipId
-          })
-        );
-      })
-      .catch(() => {
-        send(
-          res,
-          400,
-          fail(
-            'Invalid JSON body.',
-            'INVALID_JSON'
-          )
-        );
-      });
-
-    return true;
-  }
-
-  return false;
-}
-
-const server = http.createServer(
-  (req, res) => {
-
-    const url = new URL(
-      req.url,
-      `http://${req.headers.host || 'localhost'}`
-    );
-
-    if (url.pathname.startsWith('/api/')) {
-      return (
-        handleApi(req, res, url) ||
-        send(
-          res,
-          404,
-          fail(
-            'API route not found.',
-            'NOT_FOUND'
-          )
-        )
-      );
-    }
-
-    let pathname = decodeURIComponent(
-      url.pathname
-    );
-
-    if (pathname === '/') {
-      pathname = '/index.html';
-    }
-
-    const file = path.normalize(
-      path.join(ROOT, pathname)
-    );
-
-    if (!file.startsWith(ROOT)) {
-      return send(
-        res,
-        403,
-        fail(
-          'Forbidden.',
-          'FORBIDDEN'
-        )
-      );
-    }
-
-    fs.readFile(file, (err, data) => {
-
-      if (err) {
-        return res
-          .writeHead(404, {
-            'Content-Type': 'text/plain'
-          })
-          .end('Not found');
-      }
-
-      res.writeHead(200, {
-        'Content-Type':
-          MIME[path.extname(file)] ||
-          'application/octet-stream'
-      });
-
-      res.end(data);
-    });
-  }
-);
-
-server.listen(
-  PORT,
-  () => {
-    console.log(
-      `InternConnect running on http://localhost:${PORT}`
+    return res.status(400).json(
+      fail(
+        'Skills must be a non-empty array.',
+        'INVALID_SKILLS'
+      )
     );
   }
-);
+
+  const existing = db
+    .prepare(
+      'SELECT id FROM internships WHERE id = ?'
+    )
+    .get(String(body.id));
+
+  if (existing) {
+    return res.status(409).json(
+      fail(
+        'Internship ID already exists.',
+        'DUPLICATE_ID'
+      )
+    );
+  }
+
+  db.prepare(`
+    INSERT INTO internships
+    (
+      id,
+      title,
+      domain,
+      mode,
+      location,
+      skills,
+      openings,
+      company,
+      stipend,
+      duration,
+      description
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    String(body.id),
+    String(body.title).trim(),
+    String(body.domain).trim(),
+    String(body.mode).trim(),
+    String(body.location).trim(),
+    JSON.stringify(body.skills),
+    Number(body.openings),
+    String(body.company).trim(),
+    Number(body.stipend),
+    Number(body.duration),
+    String(body.description).trim()
+  );
+
+  const created = db
+    .prepare(
+      'SELECT * FROM internships WHERE id = ?'
+    )
+    .get(String(body.id));
+
+  return res.status(201).json(
+    ok(formatInternship(created))
+  );
+});
+
+/*
+  UPDATE INTERNSHIP
+  Supports PUT and PATCH
+*/
+const updateInternship = (req, res) => {
+  const id = req.params.id;
+
+  const existing = db
+    .prepare(
+      'SELECT * FROM internships WHERE id = ?'
+    )
+    .get(id);
+
+  if (!existing) {
+    return res.status(404).json(
+      fail(
+        'Internship not found.',
+        'INTERNSHIP_NOT_FOUND'
+      )
+    );
+  }
+
+  const current = formatInternship(existing);
+  const body = req.body || {};
+
+  const updated = {
+    title:
+      body.title !== undefined
+        ? String(body.title).trim()
+        : current.title,
+
+    domain:
+      body.domain !== undefined
+        ? String(body.domain).trim()
+        : current.domain,
+
+    mode:
+      body.mode !== undefined
+        ? String(body.mode).trim()
+        : current.mode,
+
+    location:
+      body.location !== undefined
+        ? String(body.location).trim()
+        : current.location,
+
+    skills:
+      body.skills !== undefined
+        ? body.skills
+        : current.skills,
+
+    openings:
+      body.openings !== undefined
+        ? Number(body.openings)
+        : current.openings,
+
+    company:
+      body.company !== undefined
+        ? String(body.company).trim()
+        : current.company,
+
+    stipend:
+      body.stipend !== undefined
+        ? Number(body.stipend)
+        : current.stipend,
+
+    duration:
+      body.duration !== undefined
+        ? Number(body.duration)
+        : current.duration,
+
+    description:
+      body.description !== undefined
+        ? String(body.description).trim()
+        : current.description
+  };
+
+  if (
+    !Array.isArray(updated.skills) ||
+    updated.skills.length === 0
+  ) {
+    return res.status(400).json(
+      fail(
+        'Skills must be a non-empty array.',
+        'INVALID_SKILLS'
+      )
+    );
+  }
+
+  db.prepare(`
+    UPDATE internships
+    SET
+      title = ?,
+      domain = ?,
+      mode = ?,
+      location = ?,
+      skills = ?,
+      openings = ?,
+      company = ?,
+      stipend = ?,
+      duration = ?,
+      description = ?
+    WHERE id = ?
+  `).run(
+    updated.title,
+    updated.domain,
+    updated.mode,
+    updated.location,
+    JSON.stringify(updated.skills),
+    updated.openings,
+    updated.company,
+    updated.stipend,
+    updated.duration,
+    updated.description,
+    id
+  );
+
+  const result = db
+    .prepare(
+      'SELECT * FROM internships WHERE id = ?'
+    )
+    .get(id);
+
+  return res.status(200).json(
+    ok(formatInternship(result))
+  );
+};
+
+app.put('/api/internships/:id', updateInternship);
+app.patch('/api/internships/:id', updateInternship);
+
+/*
+  DELETE INTERNSHIP
+*/
+app.delete('/api/internships/:id', (req, res) => {
+  const id = req.params.id;
+
+  const existing = db
+    .prepare(
+      'SELECT id FROM internships WHERE id = ?'
+    )
+    .get(id);
+
+  if (!existing) {
+    return res.status(404).json(
+      fail(
+        'Internship not found.',
+        'INTERNSHIP_NOT_FOUND'
+      )
+    );
+  }
+
+  db.prepare(
+    'DELETE FROM internships WHERE id = ?'
+  ).run(id);
+
+  return res.status(200).json(
+    ok({
+      id,
+      message: 'Internship deleted successfully.'
+    })
+  );
+});
+
+/*
+  SUBMIT APPLICATION
+*/
+app.post('/api/applications', (req, res) => {
+  const body = req.body || {};
+
+  const name = String(
+    body.name || ''
+  ).trim();
+
+  const email = String(
+    body.email || ''
+  ).trim().toLowerCase();
+
+  const portfolio = String(
+    body.portfolio || ''
+  ).trim();
+
+  const internshipId = String(
+    body.internshipId || ''
+  ).trim();
+
+  if (!name) {
+    return res.status(400).json(
+      fail(
+        'Name is required.',
+        'NAME_REQUIRED'
+      )
+    );
+  }
+
+  if (
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)
+  ) {
+    return res.status(400).json(
+      fail(
+        'Enter a valid email address.',
+        'INVALID_EMAIL'
+      )
+    );
+  }
+
+  if (
+    portfolio &&
+    !isSafeUrl(portfolio)
+  ) {
+    return res.status(400).json(
+      fail(
+        'Portfolio URL must use http or https.',
+        'UNSAFE_URL'
+      )
+    );
+  }
+
+  const internship = db
+    .prepare(
+      'SELECT id FROM internships WHERE id = ?'
+    )
+    .get(internshipId);
+
+  if (!internship) {
+    return res.status(404).json(
+      fail(
+        'Internship not found.',
+        'INTERNSHIP_NOT_FOUND'
+      )
+    );
+  }
+
+  // No applicant information is logged.
+  const key = `${internshipId}:${email}`;
+
+  if (applicationStore.has(key)) {
+    return res.status(409).json(
+      fail(
+        'You have already applied to this internship.',
+        'DUPLICATE_APPLICATION'
+      )
+    );
+  }
+
+  const applicationId = crypto.randomUUID();
+
+  applicationStore.set(
+    key,
+    {
+      applicationId,
+      internshipId
+    }
+  );
+
+  return res.status(201).json(
+    ok({
+      applicationId,
+      internshipId
+    })
+  );
+});
+
+/*
+  API 404 HANDLER
+*/
+app.use('/api', (req, res) => {
+  return res.status(404).json(
+    fail(
+      'API route not found.',
+      'NOT_FOUND'
+    )
+  );
+});
+
+/*
+  General 404
+*/
+app.use((req, res) => {
+  return res.status(404).send('Not found');
+});
+
+/*
+  Start server
+*/
+app.listen(PORT, () => {
+  console.log(
+    `InternConnect running on http://localhost:${PORT}`
+  );
+});
